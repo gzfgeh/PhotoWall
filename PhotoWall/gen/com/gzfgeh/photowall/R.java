@@ -14,10 +14,12 @@ public final class R {
         public static final int ic_launcher=0x7f020000;
     }
     public static final class id {
+        public static final int photo=0x7f060001;
         public static final int photo_wall=0x7f060000;
     }
     public static final class layout {
         public static final int activity_main=0x7f030000;
+        public static final int gird_view_item=0x7f030001;
     }
     public static final class string {
         public static final int app_name=0x7f040000;
