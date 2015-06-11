@@ -26,29 +26,27 @@ import android.widget.TextView;
 
 import com.gzfgeh.data.Images;
 import com.gzfgeh.photowall.R;
-import com.gzfgeh.tools.NetUtil;
 
 public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollListener{
-
+	private Context context;
 	private Set<BitmapWorkerTask> taskCollection; 
 	private GridView gridView;
 	private LruCache<String, Bitmap> lruCache;
 	private int firstVisibleItem, visibleItemCount;
 	private boolean isFirstEnter = true;
-	private int i = 0;
 	
 	public MyGridViewAdapter(Context context, int resource, String[] objects, GridView gridView) {
 		super(context, resource, objects);
 		
+		this.context = context;
 		this.gridView = gridView;
 		taskCollection = new HashSet<MyGridViewAdapter.BitmapWorkerTask>();
 		int maxMemory = (int) Runtime.getRuntime().maxMemory();  
-        int cacheSize = maxMemory / 8; 
+        int cacheSize = maxMemory / 6; 
         lruCache = new LruCache<String, Bitmap>(cacheSize){
 			@Override
 			protected int sizeOf(String key, Bitmap bitmap) {
-				int count = bitmap.getByteCount();
-				return count;
+				return bitmap.getByteCount();
 			}
         };
         gridView.setOnScrollListener(this);
@@ -68,10 +66,10 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
         final ImageView photo = (ImageView) view.findViewById(R.id.photo); 
         photo.setVisibility(View.GONE);
         final TextView tvProgress = (TextView) view.findViewById(R.id.tv_progress);
+        tvProgress.setText(context.getString(R.string.progress));
         tvProgress.setVisibility(View.VISIBLE);
-        // 给ImageView设置一个Tag，保证异步加载图片时不会乱序  
         photo.setTag(url);
-        tvProgress.setTag(url+" ");
+        tvProgress.setTag(url+"-");
         setImageView(url, photo, tvProgress);  
         return view;  
 	}
@@ -117,6 +115,7 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
 	private void addInvisibleImageToCache(int firstVisibleItem, int visibleItemCount){
 		for (int i = firstVisibleItem; i < firstVisibleItem + visibleItemCount; i++) {
 			String imageUri = Images.imageThumbUrls[i];
+			
 			Bitmap bitmap = getBitmapFromMemoryCache(imageUri);
 			if (bitmap == null){
 				BitmapWorkerTask task = new BitmapWorkerTask();
@@ -139,33 +138,31 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
         }  
     } 
 	
-	class BitmapWorkerTask extends AsyncTask<String, String, Bitmap> {
+	class BitmapWorkerTask extends AsyncTask<String, Integer, Bitmap> {
 		
 		private String imageUrl;
 		private TextView tvProgres;
 		private int progress = 0;
-		private String name;
+		private int fileSize = 0;
+		
 		@Override
 		protected Bitmap doInBackground(String... params) {
-			i++;
-			Log.i("TAG", Thread.currentThread().getName() + "--" + i);
-			name = Thread.currentThread().getName();
 			imageUrl = params[0];
 			Bitmap bitmap = downloadBitmap(imageUrl);
 			if (bitmap != null)
 				addBitmapToMemoryCache(imageUrl, bitmap);
-			publishProgress(Thread.currentThread().getName());
+			
 			return bitmap;
 		}
 		
 		@Override
-		protected void onProgressUpdate(String... values) {
+		protected void onProgressUpdate(Integer... values) {
 			Log.i("TAG", values[0] + " update");
-			
 			if (tvProgres == null)
-				tvProgres = (TextView) gridView.findViewWithTag(imageUrl+" ");
-
-			tvProgres.setText(values[0] + "%");
+				tvProgres = (TextView) gridView.findViewWithTag(imageUrl+"-");
+			
+			float j = values[0]*100/fileSize;
+			tvProgres.setText(j + "%");
 			super.onProgressUpdate(values);
 		}
 
@@ -174,8 +171,6 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
 		@Override
 		protected void onPostExecute(Bitmap bitmap) {
 			super.onPostExecute(bitmap);
-			
-			Log.i("TAG", name + " finish");
 			
 			tvProgres.setVisibility(View.GONE);
 			ImageView imageView = (ImageView) gridView.findViewWithTag(imageUrl);
@@ -200,14 +195,15 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
 				connection.setDoOutput(false);
 				connection .setRequestProperty("Accept-Encoding", "identity");
 				InputStream inputStream = connection.getInputStream();
-				
+				fileSize = connection.getContentLength();
 				if (connection.getResponseCode() == 200){
 					ByteArrayOutputStream baos = new ByteArrayOutputStream();
 			        byte[] buffer = new byte[1024];
 			        int len;
 			        while ((len = inputStream.read(buffer)) != -1){
 			            baos.write(buffer, 0, len);
-			            progress = len;
+			            progress += len;
+			            publishProgress(progress);
 			        }
 			        baos.close();
 			        byte[] data = baos.toByteArray();
