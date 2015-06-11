@@ -19,6 +19,7 @@ import android.widget.AbsListView.OnScrollListener;
 import android.widget.ArrayAdapter;
 import android.widget.GridView;
 import android.widget.ImageView;
+import android.widget.TextView;
 
 import com.gzfgeh.data.Images;
 import com.gzfgeh.photowall.R;
@@ -27,6 +28,7 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
 
 	private Set<BitmapWorkerTask> taskCollection; 
 	private GridView gridView;
+	private TextView tvProgress;
 	private LruCache<String, Bitmap> lruCache;
 	private int firstVisibleItem, visibleItemCount;
 	private boolean isFirstEnter = true;
@@ -39,12 +41,11 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
 		int maxMemory = (int) Runtime.getRuntime().maxMemory();  
         int cacheSize = maxMemory / 8; 
         lruCache = new LruCache<String, Bitmap>(cacheSize){
-
 			@Override
-			protected int sizeOf(String key, Bitmap value) {
-				return value.getByteCount();
+			protected int sizeOf(String key, Bitmap bitmap) {
+				int count = bitmap.getByteCount();
+				return count;
 			}
-        	
         };
         gridView.setOnScrollListener(this);
 	}
@@ -60,21 +61,26 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
         } else {  
             view = convertView;  
         }  
-        final ImageView photo = (ImageView) view.findViewById(R.id.photo);  
+        final ImageView photo = (ImageView) view.findViewById(R.id.photo); 
+        final TextView tvProgress = (TextView) view.findViewById(R.id.tv_progress);
+        
         // 给ImageView设置一个Tag，保证异步加载图片时不会乱序  
-        photo.setTag(url);  
-        setImageView(url, photo);  
+        photo.setTag(url);
+        tvProgress.setTag(url);
+        setImageView(url, photo, tvProgress);  
         return view;  
 	}
 
 
 
-	private void setImageView(String imageUri, ImageView imageView){
+	private void setImageView(String imageUri, ImageView imageView, TextView tvProgress){
 		Bitmap bitmap = getBitmapFromMemoryCache(imageUri);
 		if (bitmap != null)
 			imageView.setImageBitmap(bitmap);
-		else 
-			imageView.setImageResource(R.drawable.ic_launcher);
+		else {
+			//imageView.setImageResource(R.drawable.ic_launcher);
+			tvProgress.setVisibility(View.VISIBLE);
+		}
 	}
 	
 	@Override
