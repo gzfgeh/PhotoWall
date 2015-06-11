@@ -3,5 +3,5 @@
 
     <string name="app_name">PhotoWall</string>
     <string name="hello_world">Hello world!</string>
-
+	<string name="progress">0%</string>
 </resources>

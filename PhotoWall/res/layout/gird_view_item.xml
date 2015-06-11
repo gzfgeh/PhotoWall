@@ -7,7 +7,7 @@
         android:id="@+id/photo"
         android:layout_width="80dip"
         android:layout_height="90dip"
-        android:src="@drawable/ic_launcher"
+        android:visibility="gone"
         android:layout_centerInParent="true"
         android:contentDescription="@string/hello_world"/>
 
@@ -15,8 +15,9 @@
     	android:layout_width="80dip"
     	android:layout_height="90dip"
     	android:id="@+id/tv_progress"
-    	android:text="0%"
+    	android:text="@string/progress"
     	android:layout_centerInParent="true"
-    	android:visibility="gone"/>
+    	android:gravity="center"
+    	android:background="#336699"/>
     
 </RelativeLayout>

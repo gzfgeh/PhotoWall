@@ -1,5 +1,7 @@
 package com.gzfgeh.customview;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.HashSet;
@@ -11,6 +13,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.AsyncTask;
 import android.support.v4.util.LruCache;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,15 +26,16 @@ import android.widget.TextView;
 
 import com.gzfgeh.data.Images;
 import com.gzfgeh.photowall.R;
+import com.gzfgeh.tools.NetUtil;
 
 public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollListener{
 
 	private Set<BitmapWorkerTask> taskCollection; 
 	private GridView gridView;
-	private TextView tvProgress;
 	private LruCache<String, Bitmap> lruCache;
 	private int firstVisibleItem, visibleItemCount;
 	private boolean isFirstEnter = true;
+	private int i = 0;
 	
 	public MyGridViewAdapter(Context context, int resource, String[] objects, GridView gridView) {
 		super(context, resource, objects);
@@ -62,24 +66,23 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
             view = convertView;  
         }  
         final ImageView photo = (ImageView) view.findViewById(R.id.photo); 
+        photo.setVisibility(View.GONE);
         final TextView tvProgress = (TextView) view.findViewById(R.id.tv_progress);
-        
+        tvProgress.setVisibility(View.VISIBLE);
         // 给ImageView设置一个Tag，保证异步加载图片时不会乱序  
         photo.setTag(url);
-        tvProgress.setTag(url);
+        tvProgress.setTag(url+" ");
         setImageView(url, photo, tvProgress);  
         return view;  
 	}
 
-
-
-	private void setImageView(String imageUri, ImageView imageView, TextView tvProgress){
+	private void setImageView(String imageUri, ImageView imageView, TextView textView){
 		Bitmap bitmap = getBitmapFromMemoryCache(imageUri);
-		if (bitmap != null)
+		
+		if (bitmap != null){
 			imageView.setImageBitmap(bitmap);
-		else {
-			//imageView.setImageResource(R.drawable.ic_launcher);
-			tvProgress.setVisibility(View.VISIBLE);
+			imageView.setVisibility(View.VISIBLE);
+			textView.setVisibility(View.GONE);
 		}
 	}
 	
@@ -121,8 +124,9 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
 				task.execute(imageUri);
 			}else {
 				ImageView imageView = (ImageView) gridView.findViewWithTag(imageUri);
-				if (imageView != null && bitmap != null)
+				if (imageView != null && bitmap != null){
 					imageView.setImageBitmap(bitmap);
+				}
 			}
 		}
 	}
@@ -135,28 +139,51 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
         }  
     } 
 	
-	class BitmapWorkerTask extends AsyncTask<String, Void, Bitmap> {
+	class BitmapWorkerTask extends AsyncTask<String, String, Bitmap> {
 		
 		private String imageUrl;
-		
+		private TextView tvProgres;
+		private int progress = 0;
+		private String name;
 		@Override
 		protected Bitmap doInBackground(String... params) {
+			i++;
+			Log.i("TAG", Thread.currentThread().getName() + "--" + i);
+			name = Thread.currentThread().getName();
 			imageUrl = params[0];
 			Bitmap bitmap = downloadBitmap(imageUrl);
 			if (bitmap != null)
 				addBitmapToMemoryCache(imageUrl, bitmap);
-			
+			publishProgress(Thread.currentThread().getName());
 			return bitmap;
 		}
 		
 		@Override
+		protected void onProgressUpdate(String... values) {
+			Log.i("TAG", values[0] + " update");
+			
+			if (tvProgres == null)
+				tvProgres = (TextView) gridView.findViewWithTag(imageUrl+" ");
+
+			tvProgres.setText(values[0] + "%");
+			super.onProgressUpdate(values);
+		}
+
+
+
+		@Override
 		protected void onPostExecute(Bitmap bitmap) {
 			super.onPostExecute(bitmap);
 			
-			ImageView imageView = (ImageView) gridView.findViewWithTag(imageUrl);
-			if (imageView != null && bitmap != null)
-				imageView.setImageBitmap(bitmap);
+			Log.i("TAG", name + " finish");
 			
+			tvProgres.setVisibility(View.GONE);
+			ImageView imageView = (ImageView) gridView.findViewWithTag(imageUrl);
+			imageView.setVisibility(View.VISIBLE);
+			
+			if (imageView != null && bitmap != null){
+				imageView.setImageBitmap(bitmap);
+			}
 			taskCollection.remove(this);
 		}
 
@@ -171,7 +198,26 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
 				connection.setConnectTimeout(5000);
 				connection.setReadTimeout(10000);
 				connection.setDoOutput(false);
-				bitmap = BitmapFactory.decodeStream(connection.getInputStream());
+				connection .setRequestProperty("Accept-Encoding", "identity");
+				InputStream inputStream = connection.getInputStream();
+				
+				if (connection.getResponseCode() == 200){
+					ByteArrayOutputStream baos = new ByteArrayOutputStream();
+			        byte[] buffer = new byte[1024];
+			        int len;
+			        while ((len = inputStream.read(buffer)) != -1){
+			            baos.write(buffer, 0, len);
+			            progress = len;
+			        }
+			        baos.close();
+			        byte[] data = baos.toByteArray();
+			        
+					//byte[] data = NetUtil.read(inputStream);
+					bitmap = BitmapFactory.decodeByteArray(data, 0, data.length);
+				}
+				
+				
+				inputStream.close();
 			} catch (Exception e) {
 				e.printStackTrace();
 			}finally{
