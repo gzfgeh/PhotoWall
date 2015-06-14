@@ -1,60 +1,74 @@
 package com.gzfgeh.customview;
 
-import java.io.ByteArrayOutputStream;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileDescriptor;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HashSet;
 import java.util.Set;
 
+import libcore.io.DiskLruCache;
+import libcore.io.DiskLruCache.Snapshot;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.AsyncTask;
 import android.support.v4.util.LruCache;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.AbsListView;
-import android.widget.AbsListView.OnScrollListener;
 import android.widget.ArrayAdapter;
 import android.widget.GridView;
 import android.widget.ImageView;
-import android.widget.TextView;
-
-import com.gzfgeh.data.Images;
 import com.gzfgeh.photowall.R;
+import com.gzfgeh.tools.CommonTool;
 
-public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollListener{
-	private Context context;
+public class MyGridViewAdapter extends ArrayAdapter<String>{
+	private static final int DISK_CACHE_SIZE = 10 * 1024 *1024;
 	private Set<BitmapWorkerTask> taskCollection; 
 	private GridView gridView;
 	private LruCache<String, Bitmap> lruCache;
-	private int firstVisibleItem, visibleItemCount;
-	private boolean isFirstEnter = true;
+	private DiskLruCache mDiskLruCache;
+	private int mItemHeight = 0;
 	
 	public MyGridViewAdapter(Context context, int resource, String[] objects, GridView gridView) {
 		super(context, resource, objects);
 		
-		this.context = context;
 		this.gridView = gridView;
 		taskCollection = new HashSet<MyGridViewAdapter.BitmapWorkerTask>();
 		int maxMemory = (int) Runtime.getRuntime().maxMemory();  
-        int cacheSize = maxMemory / 6; 
+        int cacheSize = maxMemory / 10; 
         lruCache = new LruCache<String, Bitmap>(cacheSize){
 			@Override
 			protected int sizeOf(String key, Bitmap bitmap) {
 				return bitmap.getByteCount();
 			}
         };
-        gridView.setOnScrollListener(this);
+        
+        try { 
+            File cacheDir = CommonTool.getDiskCacheDir(context, "thumb");  
+            if (!cacheDir.exists()) {  
+                cacheDir.mkdirs();  
+            }  
+            // 创建DiskLruCache实例，初始化缓存数据  
+            mDiskLruCache = DiskLruCache.open(cacheDir, CommonTool.getAppVersion(context), 1, DISK_CACHE_SIZE);  
+        } catch (IOException e) {  
+            e.printStackTrace();  
+        } 
+        
 	}
-
 	
-	
-	@SuppressLint("InflateParams") @Override
+	@SuppressLint("InflateParams") 
+	@Override
 	public View getView(int position, View convertView, ViewGroup parent) {
 		final String url = getItem(position);  
         View view;  
@@ -63,45 +77,77 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
         } else {  
             view = convertView;  
         }  
-        final ImageView photo = (ImageView) view.findViewById(R.id.photo); 
-        photo.setVisibility(View.GONE);
-        final TextView tvProgress = (TextView) view.findViewById(R.id.tv_progress);
-        tvProgress.setText(context.getString(R.string.progress));
-        tvProgress.setVisibility(View.VISIBLE);
+        
+        final ImageView photo = (ImageView) view.findViewById(R.id.photo);
+        if (photo.getLayoutParams().height != mItemHeight) {  
+        	photo.getLayoutParams().height = mItemHeight;  
+        } 
         photo.setTag(url);
-        tvProgress.setTag(url+"-");
-        setImageView(url, photo, tvProgress);  
+        photo.setImageResource(R.drawable.ic_launcher);
+        setImageView(url, photo);  
         return view;  
 	}
 
-	private void setImageView(String imageUri, ImageView imageView, TextView textView){
-		Bitmap bitmap = getBitmapFromMemoryCache(imageUri);
+	private void setImageView(String imageUrl, ImageView imageView){
+		Bitmap bitmap = getBitmapFromMemoryCache(imageUrl);
 		
 		if (bitmap != null){
 			imageView.setImageBitmap(bitmap);
-			imageView.setVisibility(View.VISIBLE);
-			textView.setVisibility(View.GONE);
+		}else {
+			BitmapWorkerTask task = new BitmapWorkerTask();
+			taskCollection.add(task);
+			task.execute(imageUrl);
 		}
 	}
 	
-	@Override
-	public void onScroll(AbsListView view, int firstVisibleItem, int visibleItemCount, int totalItemCount) {
-		this.firstVisibleItem = firstVisibleItem;
-		this.visibleItemCount = visibleItemCount;
-		
-		if (isFirstEnter && visibleItemCount > 0){
-			addInvisibleImageToCache(firstVisibleItem, visibleItemCount);
-			isFirstEnter = false;
-		}
-	}
-
-	@Override
-	public void onScrollStateChanged(AbsListView view, int scrollState) {
-		if (scrollState == SCROLL_STATE_IDLE)
-			addInvisibleImageToCache(firstVisibleItem, visibleItemCount);
-		else
-			cancelAllTasks();
-	}
+	public void setItemHeight(int height) {  
+        if (height == mItemHeight) {  
+            return;  
+        }  
+        mItemHeight = height;  
+        notifyDataSetChanged();  
+    } 
+	
+	
+	/** 
+     * 使用MD5算法对传入的key进行加密并返回。 
+     */  
+    public String hashKeyForDisk(String key) {  
+        String cacheKey;  
+        try {  
+            final MessageDigest mDigest = MessageDigest.getInstance("MD5");  
+            mDigest.update(key.getBytes());  
+            cacheKey = bytesToHexString(mDigest.digest());  
+        } catch (NoSuchAlgorithmException e) {  
+            cacheKey = String.valueOf(key.hashCode());  
+        }  
+        return cacheKey;  
+    }  
+      
+    /** 
+     * 将缓存记录同步到journal文件中。 
+     */  
+    public void fluchCache() {  
+        if (mDiskLruCache != null) {  
+            try {  
+                mDiskLruCache.flush();  
+            } catch (IOException e) {  
+                e.printStackTrace();  
+            }  
+        }  
+    }  
+  
+    private String bytesToHexString(byte[] bytes) {  
+        StringBuilder sb = new StringBuilder();  
+        for (int i = 0; i < bytes.length; i++) {  
+            String hex = Integer.toHexString(0xFF & bytes[i]);  
+            if (hex.length() == 1) {  
+                sb.append('0');  
+            }  
+            sb.append(hex);  
+        }  
+        return sb.toString();  
+    }
 
 	private void addBitmapToMemoryCache(String key, Bitmap bitmap){
 		if (getBitmapFromMemoryCache(key) == null)
@@ -112,24 +158,6 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
 		return lruCache.get(key);
 	}
 	
-	private void addInvisibleImageToCache(int firstVisibleItem, int visibleItemCount){
-		for (int i = firstVisibleItem; i < firstVisibleItem + visibleItemCount; i++) {
-			String imageUri = Images.imageThumbUrls[i];
-			
-			Bitmap bitmap = getBitmapFromMemoryCache(imageUri);
-			if (bitmap == null){
-				BitmapWorkerTask task = new BitmapWorkerTask();
-				taskCollection.add(task);
-				task.execute(imageUri);
-			}else {
-				ImageView imageView = (ImageView) gridView.findViewWithTag(imageUri);
-				if (imageView != null && bitmap != null){
-					imageView.setImageBitmap(bitmap);
-				}
-			}
-		}
-	}
-	
 	public void cancelAllTasks() {  
         if (taskCollection != null) {  
             for (BitmapWorkerTask task : taskCollection) {  
@@ -138,32 +166,60 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
         }  
     } 
 	
-	class BitmapWorkerTask extends AsyncTask<String, Integer, Bitmap> {
-		
+	class BitmapWorkerTask extends AsyncTask<String, Void, Bitmap> {
 		private String imageUrl;
-		private TextView tvProgres;
-		private int progress = 0;
-		private int fileSize = 0;
 		
 		@Override
 		protected Bitmap doInBackground(String... params) {
 			imageUrl = params[0];
-			Bitmap bitmap = downloadBitmap(imageUrl);
-			if (bitmap != null)
-				addBitmapToMemoryCache(imageUrl, bitmap);
 			
-			return bitmap;
-		}
-		
-		@Override
-		protected void onProgressUpdate(Integer... values) {
-			Log.i("TAG", values[0] + " update");
-			if (tvProgres == null)
-				tvProgres = (TextView) gridView.findViewWithTag(imageUrl+"-");
-			
-			float j = values[0]*100/fileSize;
-			tvProgres.setText(j + "%");
-			super.onProgressUpdate(values);
+			FileDescriptor fileDescriptor = null;  
+            FileInputStream fileInputStream = null;  
+            Snapshot snapShot = null;  
+            try {  
+                // 生成图片URL对应的key  
+                final String key = hashKeyForDisk(imageUrl);  
+                // 查找key对应的缓存  
+                snapShot = mDiskLruCache.get(key);  	
+                if (snapShot == null) {  
+                    // 如果没有找到对应的缓存，则准备从网络上请求数据，并写入缓存  
+                    DiskLruCache.Editor editor = mDiskLruCache.edit(key);  
+                    if (editor != null) {  
+                        OutputStream outputStream = editor.newOutputStream(0);  
+                        if (downloadUrlToStream(imageUrl, outputStream)) {  
+                            editor.commit();  
+                        } else {  
+                            editor.abort();  
+                        }  
+                    }  
+                    // 缓存被写入后，再次查找key对应的缓存  
+                    snapShot = mDiskLruCache.get(key);  
+                }  
+                if (snapShot != null) {  
+                    fileInputStream = (FileInputStream) snapShot.getInputStream(0);  
+                    fileDescriptor = fileInputStream.getFD();  
+                }  
+                // 将缓存数据解析成Bitmap对象  
+                Bitmap bitmap = null;  
+                if (fileDescriptor != null) {  
+                    bitmap = BitmapFactory.decodeFileDescriptor(fileDescriptor);  
+                }  
+                if (bitmap != null) {  
+                    // 将Bitmap对象添加到内存缓存当中  
+                    addBitmapToMemoryCache(params[0], bitmap);  
+                }  
+                return bitmap;  
+            } catch (IOException e) {  
+                e.printStackTrace();  
+            } finally {  
+                if (fileDescriptor == null && fileInputStream != null) {  
+                    try {  
+                        fileInputStream.close();  
+                    } catch (IOException e) {  
+                    }  
+                }  
+            }  
+            return null;  
 		}
 
 
@@ -171,22 +227,21 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
 		@Override
 		protected void onPostExecute(Bitmap bitmap) {
 			super.onPostExecute(bitmap);
-			
-			tvProgres.setVisibility(View.GONE);
 			ImageView imageView = (ImageView) gridView.findViewWithTag(imageUrl);
-			imageView.setVisibility(View.VISIBLE);
 			
 			if (imageView != null && bitmap != null){
 				imageView.setImageBitmap(bitmap);
+				imageView.setVisibility(View.VISIBLE);
 			}
 			taskCollection.remove(this);
 		}
 
 
 
-		private Bitmap downloadBitmap(String imageUrl){
-			Bitmap bitmap = null;
+		private boolean downloadUrlToStream(String imageUrl, OutputStream outputStream){
 			HttpURLConnection connection = null;
+			BufferedOutputStream out = null;  
+            BufferedInputStream in = null;
 			try {
 				URL url = new URL(imageUrl);
 				connection = (HttpURLConnection) url.openConnection();
@@ -195,33 +250,31 @@ public class MyGridViewAdapter extends ArrayAdapter<String> implements OnScrollL
 				connection.setDoOutput(false);
 				connection .setRequestProperty("Accept-Encoding", "identity");
 				InputStream inputStream = connection.getInputStream();
-				fileSize = connection.getContentLength();
-				if (connection.getResponseCode() == 200){
-					ByteArrayOutputStream baos = new ByteArrayOutputStream();
-			        byte[] buffer = new byte[1024];
-			        int len;
-			        while ((len = inputStream.read(buffer)) != -1){
-			            baos.write(buffer, 0, len);
-			            progress += len;
-			            publishProgress(progress);
-			        }
-			        baos.close();
-			        byte[] data = baos.toByteArray();
-			        
-					//byte[] data = NetUtil.read(inputStream);
-					bitmap = BitmapFactory.decodeByteArray(data, 0, data.length);
-				}
-				
-				
-				inputStream.close();
+				in = new BufferedInputStream(inputStream, 1024*8);
+				out = new BufferedOutputStream(outputStream, 1024*8);
+		        int len;
+		        while ((len = in.read()) != -1){
+		            out.write(len);
+		        }
+		        inputStream.close();
+		        return true;
 			} catch (Exception e) {
 				e.printStackTrace();
 			}finally{
 				if (connection != null)
 					connection.disconnect();
+				try {  
+                    if (out != null) {  
+                        out.close();  
+                    }  
+                    if (in != null) {  
+                        in.close();  
+                    }  
+                } catch (final IOException e) {  
+                    e.printStackTrace();  
+                }  
 			}
-			return bitmap;
-			
+			return false;
 		}
 	}
 }

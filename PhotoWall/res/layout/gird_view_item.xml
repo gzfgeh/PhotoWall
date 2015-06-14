@@ -5,19 +5,9 @@
 
     <ImageView 
         android:id="@+id/photo"
-        android:layout_width="80dip"
-        android:layout_height="90dip"
-        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
         android:layout_centerInParent="true"
         android:contentDescription="@string/hello_world"/>
-
-    <TextView 
-    	android:layout_width="80dip"
-    	android:layout_height="90dip"
-    	android:id="@+id/tv_progress"
-    	android:text="@string/progress"
-    	android:layout_centerInParent="true"
-    	android:gravity="center"
-    	android:background="#336699"/>
     
 </RelativeLayout>

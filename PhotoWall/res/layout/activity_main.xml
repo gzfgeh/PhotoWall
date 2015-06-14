@@ -6,11 +6,12 @@
     <GridView 
         android:id="@+id/photo_wall"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:columnWidth="90dip"
+        android:layout_height="match_parent"
+        android:columnWidth="@dimen/image_thumbnail_size"
+        android:horizontalSpacing="@dimen/image_thumbnail_spacing"
         android:stretchMode="columnWidth"
         android:numColumns="auto_fit"
-        android:verticalSpacing="10dip"
+        android:verticalSpacing="@dimen/image_thumbnail_spacing"
         android:gravity="center"/>
     
 </LinearLayout>
